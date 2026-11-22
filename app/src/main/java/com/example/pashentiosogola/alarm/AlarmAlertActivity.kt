@@ -1,20 +1,8 @@
 package com.example.pashentiosogola.alarm
 
-import android.app.AlarmManager
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
-import android.media.AudioAttributes
-import android.media.MediaPlayer
-import android.media.RingtoneManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
-import android.os.VibrationEffect
-import android.os.Vibrator
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -35,8 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.app.NotificationCompat
-import com.example.pashentiosogola.R
+import com.example.pashentiosogola.data.Medication
 import com.example.pashentiosogola.data.db.MedicationRepository
 import com.example.pashentiosogola.ui.theme.PashentiOsogolaTheme
 import java.text.SimpleDateFormat
@@ -44,27 +31,9 @@ import java.util.Date
 import java.util.Locale
 
 class AlarmAlertActivity : ComponentActivity() {
-    private var mediaPlayer: MediaPlayer? = null
-    private var vibrator: Vibrator? = null
-    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Force Wake Screen ON even when phone is sleeping/off
-        try {
-            val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
-            @Suppress("DEPRECATION")
-            wakeLock = powerManager?.newWakeLock(
-                PowerManager.FULL_WAKE_LOCK or
-                        PowerManager.ACQUIRE_CAUSES_WAKEUP or
-                        PowerManager.ON_AFTER_RELEASE,
-                "WodwalaOtsogola:AlarmWakeLock"
-            )
-            wakeLock?.acquire(3 * 60 * 1000L) // Hold wake lock for 3 minutes
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
 
         // Wake up screen over keyguard/lock screen
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
@@ -85,19 +54,19 @@ class AlarmAlertActivity : ComponentActivity() {
         val medTime = intent.getStringExtra("MED_TIME") ?: "Scheduled Time"
         val medInstructions = intent.getStringExtra("MED_INSTRUCTIONS") ?: ""
 
-        val repository = MedicationRepository(this)
-        val settings = repository.loadSettings()
-        val soundEnabled = settings["soundEnabled"] as? Boolean ?: true
-        val vibrationEnabled = settings["vibrationEnabled"] as? Boolean ?: true
-        val alarmTone = settings["alarmTone"] as? String ?: "Default Alarm"
+        // Post top-of-screen heads-up notification so user sees it in notification bar
+        AlarmController.sendHeadsUpNotification(
+            context = this,
+            medId = medId,
+            medName = medName,
+            medDosage = medDosage,
+            medTime = medTime,
+            medInstructions = medInstructions
+        )
 
-        showPersistentNotification(this, medName, medTime)
-
-        if (soundEnabled) {
-            playAlarmAudio(this, alarmTone)
-        }
-        if (vibrationEnabled) {
-            startVibration(this)
+        // Play alarm audio & vibration via centralized controller if not already playing
+        if (!AlarmController.isAlarmPlaying) {
+            AlarmController.playAlarm(this)
         }
 
         setContent {
@@ -225,11 +194,10 @@ class AlarmAlertActivity : ComponentActivity() {
 
                                 Spacer(modifier = Modifier.height(28.dp))
 
-                                // Take Now Action Button (Instantly stops audio & marks taken)
+                                // Take Now Action Button (Instantly stops audio, vibration, notification & marks taken)
                                 Button(
                                     onClick = {
-                                        cancelNotification(this@AlarmAlertActivity)
-                                        stopAlarmAudio()
+                                        AlarmController.stopAlarm(this@AlarmAlertActivity)
                                         markAsTaken(medId)
                                         finish()
                                     },
@@ -249,8 +217,7 @@ class AlarmAlertActivity : ComponentActivity() {
                                 // Snooze / Dismiss Button (Instantly stops audio & reschedules)
                                 OutlinedButton(
                                     onClick = {
-                                        cancelNotification(this@AlarmAlertActivity)
-                                        stopAlarmAudio()
+                                        AlarmController.stopAlarm(this@AlarmAlertActivity)
                                         snoozeAlarm(this@AlarmAlertActivity, medId, medName, medDosage, medTime, medInstructions)
                                         finish()
                                     },
@@ -271,115 +238,6 @@ class AlarmAlertActivity : ComponentActivity() {
         }
     }
 
-    private fun showPersistentNotification(context: Context, medName: String, medTime: String) {
-        try {
-            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val channelId = "wodwala_persistent_channel"
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val channel = NotificationChannel(
-                    channelId,
-                    "Wodwala Medication Reminders",
-                    NotificationManager.IMPORTANCE_HIGH
-                ).apply {
-                    description = "Persistent medication reminders and active alarms"
-                }
-                notificationManager.createNotificationChannel(channel)
-            }
-
-            val alertIntent = Intent(context, AlarmAlertActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            }
-            val pendingIntent = PendingIntent.getActivity(
-                context,
-                0,
-                alertIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            val builder = NotificationCompat.Builder(context, channelId)
-                .setSmallIcon(R.drawable.ic_wodwala_logo)
-                .setContentTitle("Wodwala Otsogola - Medication Due")
-                .setContentText("Time to take $medName at $medTime!")
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setOngoing(true)
-                .setContentIntent(pendingIntent)
-                .setAutoCancel(false)
-
-            notificationManager.notify(1001, builder.build())
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun cancelNotification(context: Context) {
-        try {
-            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.cancel(1001)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun playAlarmAudio(context: Context, tone: String) {
-        try {
-            stopAlarmAudio()
-            val uri: Uri = when (tone) {
-                "Default Notification" -> RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                "Gentle Chime" -> RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-                else -> RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM) ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            }
-
-            mediaPlayer = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build()
-                )
-                setDataSource(context.applicationContext, uri)
-                isLooping = true
-                prepare()
-                start()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun startVibration(context: Context) {
-        try {
-            vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-            val pattern = longArrayOf(0, 1000, 1000)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator?.vibrate(VibrationEffect.createWaveform(pattern, 0))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator?.vibrate(pattern, 0)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun stopAlarmAudio() {
-        try {
-            if (mediaPlayer?.isPlaying == true) {
-                mediaPlayer?.stop()
-            }
-            mediaPlayer?.release()
-            mediaPlayer = null
-
-            vibrator?.cancel()
-            vibrator = null
-
-            if (wakeLock?.isHeld == true) {
-                wakeLock?.release()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
     private fun snoozeAlarm(context: Context, medId: String, medName: String, medDosage: String, medTime: String, medInstructions: String) {
         try {
             val repo = MedicationRepository(context)
@@ -387,36 +245,14 @@ class AlarmAlertActivity : ComponentActivity() {
             val snoozeStr = settings["snoozeTime"] as? String ?: "10 Minutes"
             val snoozeMins = snoozeStr.replace(Regex("[^0-9]"), "").toIntOrNull() ?: 10
 
-            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            val intent = Intent(context, AlarmReceiver::class.java).apply {
-                putExtra("MED_ID", medId)
-                putExtra("MED_NAME", medName)
-                putExtra("MED_DOSAGE", medDosage)
-                putExtra("MED_TIME", medTime)
-                putExtra("MED_INSTRUCTIONS", medInstructions)
-            }
-
-            val pendingIntent = PendingIntent.getBroadcast(
-                context,
-                medId.hashCode(),
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            val dummyMed = Medication(
+                id = medId,
+                name = medName,
+                dosage = medDosage,
+                time = medTime,
+                instructions = medInstructions
             )
-
-            val triggerTime = System.currentTimeMillis() + (snoozeMins * 60 * 1000)
-            try {
-                alarmManager.setExactAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerTime,
-                    pendingIntent
-                )
-            } catch (e: Exception) {
-                alarmManager.set(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerTime,
-                    pendingIntent
-                )
-            }
+            AlarmScheduler.scheduleAlarm(context, dummyMed, snoozeMinutesOffset = snoozeMins)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -438,13 +274,8 @@ class AlarmAlertActivity : ComponentActivity() {
         repo.saveMedications(updated)
     }
 
-    override fun onPause() {
-        super.onPause()
-        stopAlarmAudio()
-    }
-
     override fun onDestroy() {
         super.onDestroy()
-        stopAlarmAudio()
+        AlarmController.stopAlarm(this)
     }
 }

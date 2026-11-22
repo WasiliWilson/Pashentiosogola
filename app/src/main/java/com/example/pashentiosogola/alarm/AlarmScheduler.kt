@@ -10,7 +10,7 @@ import java.util.Calendar
 import java.util.Locale
 
 object AlarmScheduler {
-    fun scheduleAlarm(context: Context, medication: Medication) {
+    fun scheduleAlarm(context: Context, medication: Medication, snoozeMinutesOffset: Int? = null) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val intent = Intent(context, AlarmReceiver::class.java).apply {
             putExtra("MED_ID", medication.id)
@@ -28,35 +28,42 @@ object AlarmScheduler {
         )
 
         try {
-            val format = SimpleDateFormat("hh:mm a", Locale.getDefault())
-            val date = format.parse(medication.time)
-            if (date != null) {
-                val calendar = Calendar.getInstance().apply {
-                    time = date
-                    val targetHour = get(Calendar.HOUR_OF_DAY)
-                    val targetMinute = get(Calendar.MINUTE)
+            val triggerMillis = if (snoozeMinutesOffset != null && snoozeMinutesOffset > 0) {
+                System.currentTimeMillis() + (snoozeMinutesOffset * 60 * 1000L)
+            } else {
+                val format = SimpleDateFormat("hh:mm a", Locale.getDefault())
+                val date = format.parse(medication.time)
+                if (date != null) {
+                    val calendar = Calendar.getInstance().apply {
+                        time = date
+                        val targetHour = get(Calendar.HOUR_OF_DAY)
+                        val targetMinute = get(Calendar.MINUTE)
 
-                    timeInMillis = System.currentTimeMillis()
-                    set(Calendar.HOUR_OF_DAY, targetHour)
-                    set(Calendar.MINUTE, targetMinute)
-                    set(Calendar.SECOND, 0)
+                        timeInMillis = System.currentTimeMillis()
+                        set(Calendar.HOUR_OF_DAY, targetHour)
+                        set(Calendar.MINUTE, targetMinute)
+                        set(Calendar.SECOND, 0)
 
-                    if (timeInMillis <= System.currentTimeMillis()) {
-                        add(Calendar.DAY_OF_YEAR, 1)
+                        if (timeInMillis <= System.currentTimeMillis()) {
+                            add(Calendar.DAY_OF_YEAR, 1)
+                        }
                     }
-                }
+                    calendar.timeInMillis
+                } else null
+            }
 
+            if (triggerMillis != null) {
                 try {
                     alarmManager.setExactAndAllowWhileIdle(
                         AlarmManager.RTC_WAKEUP,
-                        calendar.timeInMillis,
+                        triggerMillis,
                         pendingIntent
                     )
                 } catch (securityException: SecurityException) {
                     // Safe fallback if exact alarm permission is restricted
                     alarmManager.set(
                         AlarmManager.RTC_WAKEUP,
-                        calendar.timeInMillis,
+                        triggerMillis,
                         pendingIntent
                     )
                 }

@@ -7,6 +7,7 @@ import android.media.RingtoneManager
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.pashentiosogola.alarm.AlarmController
 import com.example.pashentiosogola.alarm.AlarmScheduler
 import com.example.pashentiosogola.data.Medication
 import com.example.pashentiosogola.data.db.MedicationRepository
@@ -66,11 +67,11 @@ class MedicationViewModel(application: Application) : AndroidViewModel(applicati
     private val _emergencyContact = MutableStateFlow(initialSettings["emergencyContact"] as? String ?: "Dr. Smith (555-0199)")
     val emergencyContact: StateFlow<String> = _emergencyContact.asStateFlow()
 
-    private var activeRingtone: Ringtone? = null
     private var previewRingtone: Ringtone? = null
     private var timeCheckJob: Job? = null
 
     init {
+        AlarmController.createNotificationChannel(application)
         startTimeChecker()
         for (med in _medications.value) {
             if (!med.isTaken) {
@@ -165,8 +166,8 @@ class MedicationViewModel(application: Application) : AndroidViewModel(applicati
         persistSettings()
     }
 
-    fun setSnoozeTime(snooze: String) {
-        _snoozeTime.value = snooze
+    fun setSnoozeTime(duration: String) {
+        _snoozeTime.value = duration
         persistSettings()
     }
 
@@ -180,58 +181,75 @@ class MedicationViewModel(application: Application) : AndroidViewModel(applicati
         persistSettings()
     }
 
-    fun addMedication(name: String, dosage: String, time: String, instructions: String, category: String, pillCount: Int = 30) {
-        if (name.isBlank()) return
+    fun addMedication(
+        name: String,
+        dosage: String,
+        time: String,
+        instructions: String = "",
+        category: String = "Morning",
+        pillCount: Int = 30
+    ) {
         val newMed = Medication(
+            id = System.currentTimeMillis().toString(),
             name = name.trim(),
-            dosage = dosage.trim().ifBlank { "As directed" },
-            time = time.trim().ifBlank { "08:00 AM" },
+            dosage = dosage.trim(),
+            time = time.trim(),
             instructions = instructions.trim(),
             category = category,
-            pillCount = if (pillCount > 0) pillCount else 30
+            pillCount = pillCount
         )
-        AlarmScheduler.scheduleAlarm(getApplication(), newMed)
+
         _medications.update { current ->
             val updated = current + newMed
             repository.saveMedications(updated)
             updated
         }
+
+        AlarmScheduler.scheduleAlarm(getApplication(), newMed)
     }
 
-    fun updateMedication(id: String, name: String, dosage: String, time: String, instructions: String, category: String) {
-        if (name.isBlank()) return
+    fun updateMedication(
+        id: String,
+        name: String,
+        dosage: String,
+        time: String,
+        instructions: String = "",
+        category: String = "Morning"
+    ) {
         _medications.update { current ->
             val updated = current.map {
                 if (it.id == id) {
-                    val updatedMed = it.copy(
+                    it.copy(
                         name = name.trim(),
-                        dosage = dosage.trim().ifBlank { "As directed" },
-                        time = time.trim().ifBlank { "08:00 AM" },
+                        dosage = dosage.trim(),
+                        time = time.trim(),
                         instructions = instructions.trim(),
                         category = category
                     )
-                    AlarmScheduler.scheduleAlarm(getApplication(), updatedMed)
-                    updatedMed
                 } else it
             }
             repository.saveMedications(updated)
             updated
         }
+
+        val updatedMed = _medications.value.find { it.id == id }
+        if (updatedMed != null && !updatedMed.isTaken) {
+            AlarmScheduler.scheduleAlarm(getApplication(), updatedMed)
+        }
     }
 
     fun toggleTaken(id: String) {
+        // Stop audio/alarm if this med is ringing
+        stopAlarm()
+
         val timeFormat = SimpleDateFormat("hh:mm a, MMM dd", Locale.getDefault())
         val currentTime = timeFormat.format(Date())
+
         _medications.update { current ->
             val updated = current.map {
                 if (it.id == id) {
                     val newTaken = !it.isTaken
                     val newPills = if (newTaken && it.pillCount > 0) it.pillCount - 1 else it.pillCount
-                    if (newTaken) {
-                        AlarmScheduler.cancelAlarm(getApplication(), id)
-                    } else {
-                        AlarmScheduler.scheduleAlarm(getApplication(), it)
-                    }
                     it.copy(
                         isTaken = newTaken,
                         takenTimestamp = if (newTaken) currentTime else null,
@@ -271,31 +289,25 @@ class MedicationViewModel(application: Application) : AndroidViewModel(applicati
 
     fun triggerAlarm(context: Context, medication: Medication) {
         _activeAlarmMedication.value = medication
-        if (!_soundEnabled.value) return
-        try {
-            stopAlarm()
-            val uri: Uri = when (_alarmTone.value) {
-                "Default Notification" -> RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                "Gentle Chime" -> RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-                "Classic Beep" -> RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                "Marimba Chime" -> RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-                "Digital Buzzer" -> RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                else -> RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM) ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            }
-            activeRingtone = RingtoneManager.getRingtone(context.applicationContext, uri)
-            activeRingtone?.play()
-        } catch (e: Exception) {
-            e.printStackTrace()
+
+        // Send heads-up notification at top of phone screen
+        AlarmController.sendHeadsUpNotification(
+            context = context,
+            medId = medication.id,
+            medName = medication.name,
+            medDosage = medication.dosage,
+            medTime = medication.time,
+            medInstructions = medication.instructions
+        )
+
+        // Play alarm sound and vibration via AlarmController
+        if (_soundEnabled.value || _vibrationEnabled.value) {
+            AlarmController.playAlarm(context, _alarmTone.value)
         }
     }
 
     fun stopAlarm() {
-        try {
-            activeRingtone?.stop()
-            activeRingtone = null
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        AlarmController.stopAlarm(getApplication())
         _activeAlarmMedication.value = null
     }
 

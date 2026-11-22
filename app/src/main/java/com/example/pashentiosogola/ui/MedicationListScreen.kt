@@ -35,7 +35,6 @@ fun MedicationListScreen(
     val context = LocalContext.current
     val medications by viewModel.medications.collectAsState()
     val filter by viewModel.filter.collectAsState()
-    val activeAlarm by viewModel.activeAlarmMedication.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var editingMedication by remember { mutableStateOf<Medication?>(null) }
 
@@ -206,49 +205,6 @@ fun MedicationListScreen(
                 onSave = { name, dosage, time, instructions, category ->
                     viewModel.updateMedication(med.id, name, dosage, time, instructions, category)
                     editingMedication = null
-                }
-            )
-        }
-
-        // Active Alarm Ringing Overlay Dialog
-        activeAlarm?.let { med ->
-            AlertDialog(
-                onDismissRequest = { viewModel.stopAlarm() },
-                icon = {
-                    Icon(
-                        imageVector = Icons.Default.NotificationsActive,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(40.dp)
-                    )
-                },
-                title = { Text("Medication Due: ${med.name}") },
-                text = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                        Text("Time to take your medication!", fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Dosage: ${med.dosage}")
-                        Text("Scheduled Time: ${med.time}")
-                        if (med.instructions.isNotBlank()) {
-                            Text("Instructions: ${med.instructions}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            viewModel.toggleTaken(med.id)
-                            viewModel.stopAlarm()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) {
-                        Text("Take Now & Stop Alarm")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { viewModel.stopAlarm() }) {
-                        Text("Snooze / Dismiss")
-                    }
                 }
             )
         }

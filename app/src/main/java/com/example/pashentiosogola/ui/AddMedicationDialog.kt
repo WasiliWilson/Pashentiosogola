@@ -5,8 +5,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,64 +35,112 @@ fun AddMedicationDialog(
     var showTimePicker by remember { mutableStateOf(false) }
 
     val categories = listOf("Morning", "Afternoon", "Evening", "Bedtime")
+    val quickTimes = listOf("08:00 AM", "12:00 PM", "06:00 PM", "09:00 PM")
     val isEditing = medicationToEdit != null
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (isEditing) "Edit Medication" else "Add New Medication") },
+        title = {
+            Text(
+                text = if (isEditing) "Edit Medication" else "Add New Medication",
+                fontWeight = FontWeight.Bold
+            )
+        },
         text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Medication Name") },
+                    label = { Text("Medication Name *") },
+                    placeholder = { Text("e.g. Paracetamol, Amoxicillin") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+
                 OutlinedTextField(
                     value = dosage,
                     onValueChange = { dosage = it },
-                    label = { Text("Dosage (e.g. 100mg)") },
+                    label = { Text("Dosage") },
+                    placeholder = { Text("e.g. 500mg, 1 tablet") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(modifier = Modifier.height(8.dp))
 
-                // Digital Time Picker Field
-                Box(
+                // Professional Time Selector Section
+                Text(
+                    text = "Scheduled Dose Time",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                // Clickable Time Display Card
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { showTimePicker = true }
                 ) {
-                    OutlinedTextField(
-                        value = time,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Scheduled Time (Digital +/-)") },
-                        trailingIcon = {
-                            IconButton(onClick = { showTimePicker = true }) {
-                                Icon(Icons.Default.AccessTime, contentDescription = "Set Time")
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = false,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            disabledTextColor = MaterialTheme.colorScheme.onSurface,
-                            disabledBorderColor = MaterialTheme.colorScheme.outline,
-                            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.AccessTime,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = time,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                        FilledTonalButton(
+                            onClick = { showTimePicker = true },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                        ) {
+                            Text("Change Time", fontSize = 12.sp)
+                        }
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                // Quick One-Tap Time Chips
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    quickTimes.forEach { preset ->
+                        FilterChip(
+                            selected = time == preset,
+                            onClick = { time = preset },
+                            label = { Text(preset.replace(" ", ""), fontSize = 11.sp) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
                 OutlinedTextField(
                     value = instructions,
                     onValueChange = { instructions = it },
-                    label = { Text("Instructions (e.g. Take with food)") },
+                    label = { Text("Instructions") },
+                    placeholder = { Text("e.g. Take after meal with water") },
+                    singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(modifier = Modifier.height(8.dp))
 
                 // Category Dropdown
                 ExposedDropdownMenuBox(
@@ -103,9 +151,11 @@ fun AddMedicationDialog(
                         value = category,
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("Category / Time Slot") },
+                        label = { Text("Category / Slot") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                        modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, true)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, true)
                     )
                     ExposedDropdownMenu(
                         expanded = expanded,
@@ -125,7 +175,7 @@ fun AddMedicationDialog(
             }
         },
         confirmButton = {
-            TextButton(
+            Button(
                 onClick = {
                     if (name.isNotBlank()) {
                         onSave(name, dosage, time, instructions, category)
@@ -133,7 +183,7 @@ fun AddMedicationDialog(
                 },
                 enabled = name.isNotBlank()
             ) {
-                Text(if (isEditing) "Save" else "Add")
+                Text(if (isEditing) "Save Medication" else "Add Medication", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
@@ -143,9 +193,9 @@ fun AddMedicationDialog(
         }
     )
 
-    // Digital Time Picker Dialog (+ / - buttons)
+    // Professional Material 3 TimePicker Dialog (Interactive Clock Dial + Direct Keyboard Input)
     if (showTimePicker) {
-        DigitalTimePickerDialog(
+        Material3TimePickerDialog(
             initialTime = time,
             onDismiss = { showTimePicker = false },
             onTimeSelected = { selectedTime ->
@@ -155,131 +205,88 @@ fun AddMedicationDialog(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DigitalTimePickerDialog(
+fun Material3TimePickerDialog(
     initialTime: String,
     onDismiss: () -> Unit,
     onTimeSelected: (String) -> Unit
 ) {
-    var selectedHour by remember { mutableStateOf(8) }
-    var selectedMinute by remember { mutableStateOf(0) }
-    var isAm by remember { mutableStateOf(true) }
-
-    LaunchedEffect(initialTime) {
-        try {
-            val format = SimpleDateFormat("hh:mm a", Locale.getDefault())
-            val date = format.parse(initialTime)
-            if (date != null) {
-                val cal = Calendar.getInstance().apply { time = date }
-                val h = cal.get(Calendar.HOUR)
-                selectedHour = if (h == 0) 12 else h
-                selectedMinute = cal.get(Calendar.MINUTE)
-                isAm = cal.get(Calendar.AM_PM) == Calendar.AM
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
+    var initialHour = 8
+    var initialMinute = 0
+    try {
+        val format = SimpleDateFormat("hh:mm a", Locale.getDefault())
+        val date = format.parse(initialTime)
+        if (date != null) {
+            val cal = Calendar.getInstance().apply { time = date }
+            initialHour = cal.get(Calendar.HOUR_OF_DAY)
+            initialMinute = cal.get(Calendar.MINUTE)
         }
+    } catch (e: Exception) {
+        e.printStackTrace()
     }
+
+    val timePickerState = rememberTimePickerState(
+        initialHour = initialHour,
+        initialMinute = initialMinute,
+        is24Hour = false
+    )
+
+    var showKeyboard by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Set Digital Time (+/-)", fontWeight = FontWeight.Bold) },
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Select Time", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+                IconButton(onClick = { showKeyboard = !showKeyboard }) {
+                    Icon(
+                        imageVector = if (showKeyboard) Icons.Default.Schedule else Icons.Default.Keyboard,
+                        contentDescription = "Toggle Keyboard / Dial mode",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    // Hours Control (+ / -)
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        IconButton(onClick = {
-                            selectedHour = if (selectedHour >= 12) 1 else selectedHour + 1
-                        }) {
-                            Icon(Icons.Default.Add, contentDescription = "Add Hour")
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.padding(vertical = 4.dp)
-                        ) {
-                            Text(
-                                text = String.format(Locale.getDefault(), "%02d", selectedHour),
-                                fontSize = 32.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
-                        IconButton(onClick = {
-                            selectedHour = if (selectedHour <= 1) 12 else selectedHour - 1
-                        }) {
-                            Icon(Icons.Default.Remove, contentDescription = "Minus Hour")
-                        }
-                        Text("Hours", style = MaterialTheme.typography.bodySmall)
-                    }
-
-                    Text(":", fontSize = 36.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp))
-
-                    // Minutes Control (+ / -)
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        IconButton(onClick = {
-                            selectedMinute = if (selectedMinute >= 55) 0 else selectedMinute + 5
-                        }) {
-                            Icon(Icons.Default.Add, contentDescription = "Add Minute")
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.padding(vertical = 4.dp)
-                        ) {
-                            Text(
-                                text = String.format(Locale.getDefault(), "%02d", selectedMinute),
-                                fontSize = 32.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
-                        IconButton(onClick = {
-                            selectedMinute = if (selectedMinute <= 0) 55 else selectedMinute - 5
-                        }) {
-                            Icon(Icons.Default.Remove, contentDescription = "Minus Minute")
-                        }
-                        Text("Minutes", style = MaterialTheme.typography.bodySmall)
-                    }
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    // AM / PM Toggle
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        FilledTonalButton(
-                            onClick = { isAm = !isAm },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.height(56.dp)
-                        ) {
-                            Text(
-                                text = if (isAm) "AM" else "PM",
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("AM/PM", style = MaterialTheme.typography.bodySmall)
-                    }
+                if (showKeyboard) {
+                    TimeInput(state = timePickerState)
+                } else {
+                    TimePicker(state = timePickerState)
                 }
             }
         },
         confirmButton = {
             Button(onClick = {
-                val formatted = String.format(Locale.getDefault(), "%02d:%02d %s", selectedHour, selectedMinute, if (isAm) "AM" else "PM")
+                val hour = timePickerState.hour
+                val minute = timePickerState.minute
+                val isAm = hour < 12
+                val displayHour = when {
+                    hour == 0 -> 12
+                    hour > 12 -> hour - 12
+                    else -> hour
+                }
+                val formatted = String.format(
+                    Locale.getDefault(),
+                    "%02d:%02d %s",
+                    displayHour,
+                    minute,
+                    if (isAm) "AM" else "PM"
+                )
                 onTimeSelected(formatted)
                 onDismiss()
             }) {
-                Text("Set Time")
+                Text("Set Time", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
