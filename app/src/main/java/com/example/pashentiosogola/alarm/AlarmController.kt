@@ -1,11 +1,13 @@
 package com.example.pashentiosogola.alarm
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.Ringtone
 import android.media.RingtoneManager
@@ -19,7 +21,7 @@ import com.example.pashentiosogola.R
 import com.example.pashentiosogola.data.db.MedicationRepository
 
 object AlarmController {
-    const val CHANNEL_ID = "medication_alarm_heads_up_channel"
+    const val CHANNEL_ID = "medication_alarm_heads_up_v2"
     const val NOTIFICATION_ID = 1001
 
     const val ACTION_TAKE_NOW = "com.example.pashentiosogola.ACTION_TAKE_NOW"
@@ -37,6 +39,16 @@ object AlarmController {
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+
+            val audioAttributes = AudioAttributes.Builder()
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setFlags(AudioAttributes.FLAG_AUDIBILITY_ENFORCED)
+                .build()
+
+            val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Medication Alarms & Reminders",
@@ -44,12 +56,97 @@ object AlarmController {
             ).apply {
                 description = "High-priority heads-up alerts and sound for scheduled medications"
                 enableVibration(true)
-                vibrationPattern = longArrayOf(0, 800, 500, 800)
-                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                vibrationPattern = longArrayOf(0, 1000, 500, 1000)
+                setSound(soundUri, audioAttributes)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                 setBypassDnd(true)
             }
             notificationManager?.createNotificationChannel(channel)
         }
+    }
+
+    fun buildHeadsUpNotification(
+        context: Context,
+        medId: String,
+        medName: String,
+        medDosage: String,
+        medTime: String,
+        medInstructions: String
+    ): Notification {
+        createNotificationChannel(context)
+
+        // Intent when clicking the notification body -> Opens full-screen AlarmAlertActivity
+        val fullScreenIntent = Intent(context, AlarmAlertActivity::class.java).apply {
+            putExtra("MED_ID", medId)
+            putExtra("MED_NAME", medName)
+            putExtra("MED_DOSAGE", medDosage)
+            putExtra("MED_TIME", medTime)
+            putExtra("MED_INSTRUCTIONS", medInstructions)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        val contentPendingIntent = PendingIntent.getActivity(
+            context,
+            medId.hashCode(),
+            fullScreenIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Intent for TAKE NOW action button right in the notification banner
+        val takeNowIntent = Intent(context, AlarmReceiver::class.java).apply {
+            action = ACTION_TAKE_NOW
+            putExtra("MED_ID", medId)
+            putExtra("MED_NAME", medName)
+        }
+        val takeNowPendingIntent = PendingIntent.getBroadcast(
+            context,
+            medId.hashCode() + 101,
+            takeNowIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Intent for SNOOZE action button right in the notification banner
+        val snoozeIntent = Intent(context, AlarmReceiver::class.java).apply {
+            action = ACTION_SNOOZE
+            putExtra("MED_ID", medId)
+            putExtra("MED_NAME", medName)
+            putExtra("MED_DOSAGE", medDosage)
+            putExtra("MED_TIME", medTime)
+            putExtra("MED_INSTRUCTIONS", medInstructions)
+        }
+        val snoozePendingIntent = PendingIntent.getBroadcast(
+            context,
+            medId.hashCode() + 202,
+            snoozeIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val contentText = buildString {
+            append("Scheduled: $medTime")
+            if (medDosage.isNotBlank()) append(" • Dosage: $medDosage")
+        }
+
+        val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+
+        return NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_wodwala_logo)
+            .setContentTitle("🚨 Take Medication: $medName")
+            .setContentText(contentText)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(
+                "$contentText\n${if (medInstructions.isNotBlank()) "Instructions: $medInstructions\n" else ""}Tap to open or choose an action below:"
+            ))
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setSound(soundUri, AudioManager.STREAM_ALARM)
+            .setVibrate(longArrayOf(0, 1000, 500, 1000))
+            .setFullScreenIntent(contentPendingIntent, true) // Heads-up pop-up at top of screen
+            .setContentIntent(contentPendingIntent)
+            .addAction(R.drawable.ic_wodwala_logo, "✓ TAKE NOW", takeNowPendingIntent)
+            .addAction(R.drawable.ic_wodwala_logo, "⏰ SNOOZE", snoozePendingIntent)
+            .setAutoCancel(true)
+            .setOngoing(true)
+            .build()
     }
 
     fun sendHeadsUpNotification(
@@ -61,77 +158,11 @@ object AlarmController {
         medInstructions: String
     ) {
         try {
-            createNotificationChannel(context)
+            val notification = buildHeadsUpNotification(
+                context, medId, medName, medDosage, medTime, medInstructions
+            )
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-            // Intent when clicking the notification body -> Opens full-screen AlarmAlertActivity
-            val fullScreenIntent = Intent(context, AlarmAlertActivity::class.java).apply {
-                putExtra("MED_ID", medId)
-                putExtra("MED_NAME", medName)
-                putExtra("MED_DOSAGE", medDosage)
-                putExtra("MED_TIME", medTime)
-                putExtra("MED_INSTRUCTIONS", medInstructions)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            }
-            val contentPendingIntent = PendingIntent.getActivity(
-                context,
-                medId.hashCode(),
-                fullScreenIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            // Intent for TAKE NOW action button right in the notification banner
-            val takeNowIntent = Intent(context, AlarmReceiver::class.java).apply {
-                action = ACTION_TAKE_NOW
-                putExtra("MED_ID", medId)
-                putExtra("MED_NAME", medName)
-            }
-            val takeNowPendingIntent = PendingIntent.getBroadcast(
-                context,
-                medId.hashCode() + 101,
-                takeNowIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            // Intent for SNOOZE action button right in the notification banner
-            val snoozeIntent = Intent(context, AlarmReceiver::class.java).apply {
-                action = ACTION_SNOOZE
-                putExtra("MED_ID", medId)
-                putExtra("MED_NAME", medName)
-                putExtra("MED_DOSAGE", medDosage)
-                putExtra("MED_TIME", medTime)
-                putExtra("MED_INSTRUCTIONS", medInstructions)
-            }
-            val snoozePendingIntent = PendingIntent.getBroadcast(
-                context,
-                medId.hashCode() + 202,
-                snoozeIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            val contentText = buildString {
-                append("Scheduled: $medTime")
-                if (medDosage.isNotBlank()) append(" • Dosage: $medDosage")
-            }
-
-            val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_wodwala_logo)
-                .setContentTitle("🚨 Take Medication: $medName")
-                .setContentText(contentText)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(
-                    "$contentText\n${if (medInstructions.isNotBlank()) "Instructions: $medInstructions\n" else ""}Tap to open or choose an action below:"
-                ))
-                .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setCategory(NotificationCompat.CATEGORY_ALARM)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setFullScreenIntent(contentPendingIntent, true) // Heads-up pop-up at top of screen
-                .setContentIntent(contentPendingIntent)
-                .addAction(R.drawable.ic_wodwala_logo, "✓ TAKE NOW", takeNowPendingIntent)
-                .addAction(R.drawable.ic_wodwala_logo, "⏰ SNOOZE", snoozePendingIntent)
-                .setAutoCancel(true)
-                .setOngoing(true)
-
-            notificationManager.notify(NOTIFICATION_ID, builder.build())
+            notificationManager.notify(NOTIFICATION_ID, notification)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -226,7 +257,7 @@ object AlarmController {
             try {
                 mediaPlayer?.stop()
             } catch (e: Exception) {
-                // Ignore if not in playing state
+                // Ignore
             }
             try {
                 mediaPlayer?.reset()

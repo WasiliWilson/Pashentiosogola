@@ -6,14 +6,10 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocalPharmacy
 import androidx.compose.material.icons.filled.MedicalServices
-import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import com.example.pashentiosogola.ui.screens.DashboardScreen
 import com.example.pashentiosogola.ui.screens.HistoryScreen
 import com.example.pashentiosogola.ui.screens.RefillsScreen
@@ -22,7 +18,6 @@ import com.example.pashentiosogola.ui.screens.SettingsScreen
 @Composable
 fun MainScaffold(viewModel: MedicationViewModel) {
     var selectedTab by remember { mutableStateOf("dashboard") }
-    val activeAlarm by viewModel.activeAlarmMedication.collectAsState()
 
     Scaffold(
         bottomBar = {
@@ -61,7 +56,7 @@ fun MainScaffold(viewModel: MedicationViewModel) {
                 )
             }
         }
-     ) { innerPadding ->
+    ) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -80,54 +75,6 @@ fun MainScaffold(viewModel: MedicationViewModel) {
                 "history" -> HistoryScreen(viewModel = viewModel)
                 "settings" -> SettingsScreen(viewModel = viewModel)
             }
-        }
-
-        // Active Alarm Ringing Overlay Popup (Full screen high priority alert)
-        activeAlarm?.let { med ->
-            AlertDialog(
-                onDismissRequest = { viewModel.stopAlarm() },
-                icon = {
-                    Icon(
-                        imageVector = Icons.Default.NotificationsActive,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(48.dp)
-                    )
-                },
-                title = { Text("🚨 Medication Due Now: ${med.name}") },
-                text = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                        Text("Time to take your medication!", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text("Dosage: ${med.dosage}", style = MaterialTheme.typography.bodyLarge)
-                        Text("Scheduled Time: ${med.time}", style = MaterialTheme.typography.bodyMedium)
-                        if (med.instructions.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text("Instructions: ${med.instructions}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            viewModel.toggleTaken(med.id)
-                            viewModel.stopAlarm()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Take Now & Stop Alarm Audio")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = { viewModel.stopAlarm() },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Snooze / Dismiss")
-                    }
-                }
-            )
         }
     }
 }

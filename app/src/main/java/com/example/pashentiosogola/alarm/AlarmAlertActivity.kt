@@ -194,9 +194,10 @@ class AlarmAlertActivity : ComponentActivity() {
 
                                 Spacer(modifier = Modifier.height(28.dp))
 
-                                // Take Now Action Button (Instantly stops audio, vibration, notification & marks taken)
+                                // Take Now Action Button (Instantly stops audio, vibration, notification, service & marks taken)
                                 Button(
                                     onClick = {
+                                        AlarmService.stop(this@AlarmAlertActivity)
                                         AlarmController.stopAlarm(this@AlarmAlertActivity)
                                         markAsTaken(medId)
                                         finish()
@@ -217,6 +218,7 @@ class AlarmAlertActivity : ComponentActivity() {
                                 // Snooze / Dismiss Button (Instantly stops audio & reschedules)
                                 OutlinedButton(
                                     onClick = {
+                                        AlarmService.stop(this@AlarmAlertActivity)
                                         AlarmController.stopAlarm(this@AlarmAlertActivity)
                                         snoozeAlarm(this@AlarmAlertActivity, medId, medName, medDosage, medTime, medInstructions)
                                         finish()
@@ -276,6 +278,7 @@ class AlarmAlertActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        AlarmService.stop(this)
         AlarmController.stopAlarm(this)
     }
 }

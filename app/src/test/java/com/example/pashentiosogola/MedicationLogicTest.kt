@@ -42,4 +42,22 @@ class MedicationLogicTest {
         assertTrue(takenMed.isTaken)
         assertEquals(9, takenMed.pillCount)
     }
+
+    @Test
+    fun testTimeParsing() {
+        val t1 = com.example.pashentiosogola.alarm.AlarmScheduler.parseHourMinute("08:00 AM")
+        assertEquals(Pair(8, 0), t1)
+
+        val t2 = com.example.pashentiosogola.alarm.AlarmScheduler.parseHourMinute("12:00 PM")
+        assertEquals(Pair(12, 0), t2)
+
+        val t3 = com.example.pashentiosogola.alarm.AlarmScheduler.parseHourMinute("12:00 AM")
+        assertEquals(Pair(0, 0), t3)
+
+        val t4 = com.example.pashentiosogola.alarm.AlarmScheduler.parseHourMinute("01:30 PM")
+        assertEquals(Pair(13, 30), t4)
+
+        val t5 = com.example.pashentiosogola.alarm.AlarmScheduler.parseHourMinute("11:45 PM")
+        assertEquals(Pair(23, 45), t5)
+    }
 }

@@ -20,7 +20,8 @@ class AlarmReceiver : BroadcastReceiver() {
 
         when (action) {
             AlarmController.ACTION_TAKE_NOW -> {
-                // Instantly stop audio and vibration
+                // Instantly stop audio, vibration, and foreground service
+                AlarmService.stop(context)
                 AlarmController.stopAlarm(context)
 
                 // Mark medication as taken
@@ -40,7 +41,8 @@ class AlarmReceiver : BroadcastReceiver() {
                 }
             }
             AlarmController.ACTION_SNOOZE -> {
-                // Instantly stop audio and vibration
+                // Instantly stop audio, vibration, and foreground service
+                AlarmService.stop(context)
                 AlarmController.stopAlarm(context)
 
                 // Reschedule for snooze duration
@@ -59,12 +61,13 @@ class AlarmReceiver : BroadcastReceiver() {
                 AlarmScheduler.scheduleAlarm(context, dummyMed, snoozeMinutesOffset = snoozeMins)
             }
             AlarmController.ACTION_DISMISS -> {
+                AlarmService.stop(context)
                 AlarmController.stopAlarm(context)
             }
             else -> {
-                // Default Alarm Trigger:
-                // 1. Post top-of-screen Heads-Up notification (like WhatsApp/phone calls)
-                AlarmController.sendHeadsUpNotification(
+                // 1. Start foreground service: guarantees sound, vibration, and heads-up notification
+                // will ring continuously even if screen is off or user is outside the app
+                AlarmService.start(
                     context = context,
                     medId = medId,
                     medName = medName,
@@ -73,10 +76,7 @@ class AlarmReceiver : BroadcastReceiver() {
                     medInstructions = medInstructions
                 )
 
-                // 2. Play alarm audio & vibration
-                AlarmController.playAlarm(context)
-
-                // 3. Launch full-screen alert activity
+                // 2. Launch full-screen alert activity
                 try {
                     val alertIntent = Intent(context, AlarmAlertActivity::class.java).apply {
                         putExtra("MED_ID", medId)

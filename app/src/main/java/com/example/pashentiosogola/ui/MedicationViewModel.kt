@@ -2,22 +2,21 @@ package com.example.pashentiosogola.ui
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
 import android.media.Ringtone
 import android.media.RingtoneManager
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
+import com.example.pashentiosogola.alarm.AlarmAlertActivity
 import com.example.pashentiosogola.alarm.AlarmController
 import com.example.pashentiosogola.alarm.AlarmScheduler
+import com.example.pashentiosogola.alarm.AlarmService
 import com.example.pashentiosogola.data.Medication
 import com.example.pashentiosogola.data.db.MedicationRepository
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -44,10 +43,6 @@ class MedicationViewModel(application: Application) : AndroidViewModel(applicati
     private val _filter = MutableStateFlow("All") // "All", "Pending", "Taken"
     val filter: StateFlow<String> = _filter.asStateFlow()
 
-    // Active alarm ringing state
-    private val _activeAlarmMedication = MutableStateFlow<Medication?>(null)
-    val activeAlarmMedication: StateFlow<Medication?> = _activeAlarmMedication.asStateFlow()
-
     // Settings state
     private val _alarmTone = MutableStateFlow(initialSettings["alarmTone"] as? String ?: "Default Alarm")
     val alarmTone: StateFlow<String> = _alarmTone.asStateFlow()
@@ -68,11 +63,9 @@ class MedicationViewModel(application: Application) : AndroidViewModel(applicati
     val emergencyContact: StateFlow<String> = _emergencyContact.asStateFlow()
 
     private var previewRingtone: Ringtone? = null
-    private var timeCheckJob: Job? = null
 
     init {
         AlarmController.createNotificationChannel(application)
-        startTimeChecker()
         for (med in _medications.value) {
             if (!med.isTaken) {
                 AlarmScheduler.scheduleAlarm(application, med)
@@ -89,31 +82,6 @@ class MedicationViewModel(application: Application) : AndroidViewModel(applicati
             themeMode = _themeMode.value,
             emergencyContact = _emergencyContact.value
         )
-    }
-
-    private fun startTimeChecker() {
-        timeCheckJob = viewModelScope.launch {
-            while (true) {
-                delay(15_000L)
-                checkAlarms()
-            }
-        }
-    }
-
-    private fun checkAlarms() {
-        if (_activeAlarmMedication.value != null) return
-
-        val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
-        val currentTime = timeFormat.format(Date()).uppercase(Locale.getDefault())
-
-        val pending = _medications.value.filter { !it.isTaken }
-        for (med in pending) {
-            val medTime = med.time.trim().uppercase(Locale.getDefault())
-            if (medTime == currentTime) {
-                triggerAlarm(getApplication(), med)
-                break
-            }
-        }
     }
 
     fun previewSound(context: Context, tone: String) {
@@ -239,7 +207,6 @@ class MedicationViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun toggleTaken(id: String) {
-        // Stop audio/alarm if this med is ringing
         stopAlarm()
 
         val timeFormat = SimpleDateFormat("hh:mm a, MMM dd", Locale.getDefault())
@@ -250,6 +217,11 @@ class MedicationViewModel(application: Application) : AndroidViewModel(applicati
                 if (it.id == id) {
                     val newTaken = !it.isTaken
                     val newPills = if (newTaken && it.pillCount > 0) it.pillCount - 1 else it.pillCount
+                    if (newTaken) {
+                        AlarmScheduler.cancelAlarm(getApplication(), id)
+                    } else {
+                        AlarmScheduler.scheduleAlarm(getApplication(), it.copy(isTaken = false))
+                    }
                     it.copy(
                         isTaken = newTaken,
                         takenTimestamp = if (newTaken) currentTime else null,
@@ -288,10 +260,7 @@ class MedicationViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun triggerAlarm(context: Context, medication: Medication) {
-        _activeAlarmMedication.value = medication
-
-        // Send heads-up notification at top of phone screen
-        AlarmController.sendHeadsUpNotification(
+        AlarmService.start(
             context = context,
             medId = medication.id,
             medName = medication.name,
@@ -300,21 +269,29 @@ class MedicationViewModel(application: Application) : AndroidViewModel(applicati
             medInstructions = medication.instructions
         )
 
-        // Play alarm sound and vibration via AlarmController
-        if (_soundEnabled.value || _vibrationEnabled.value) {
-            AlarmController.playAlarm(context, _alarmTone.value)
+        try {
+            val alertIntent = Intent(context, AlarmAlertActivity::class.java).apply {
+                putExtra("MED_ID", medication.id)
+                putExtra("MED_NAME", medication.name)
+                putExtra("MED_DOSAGE", medication.dosage)
+                putExtra("MED_TIME", medication.time)
+                putExtra("MED_INSTRUCTIONS", medication.instructions)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+            context.startActivity(alertIntent)
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
     fun stopAlarm() {
+        AlarmService.stop(getApplication())
         AlarmController.stopAlarm(getApplication())
-        _activeAlarmMedication.value = null
     }
 
     override fun onCleared() {
         super.onCleared()
         stopAlarm()
         stopPreviewSound()
-        timeCheckJob?.cancel()
     }
 }
